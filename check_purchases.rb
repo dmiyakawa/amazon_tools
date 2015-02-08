@@ -1,17 +1,11 @@
 #!/usr/bin/env ruby
 # -*- coding: utf-8 -*-
 #
-# http://qiita.com/katoy/items/2256ad7b59b8f59161cf
-
-# 1. amazon の購入履歴を取得する。(scrennshots/* に保存される)
-#   $ ruby amazon.rb email password
+# pry> require_relative('check_purchases.rb')
+# pry> driver = Amazon.instantiate('...@gmail.com')
+# (enter password)
+# (check login and select which range you want to use)
 #
-# 2. 取得した情報から、明細書(*.png) を１つの PDF にまとめたものを作成する。
-#    (imagemagic の convert コマンドを使う)
-#   $ convert -resize 575x823 -gravity north -background white -extent 595x842 screenshots/ord*.png 1.pdf
-#
-# 3. 取得した情報から、csv 形式で購入物一覧表を作成する。
-#   $ ruby make-index.rb > 1.csv
 
 require 'csv'
 require 'rubygems'
@@ -45,31 +39,6 @@ module Amazon
 
     def close()
       @wd.quit
-    end
-
-    # 新しいタブで 指定された URL を開き、制御をそのタブに移す。
-    def open_new_window(wd, url)
-      a = wd.execute_script("var d=document,a=d.createElement('a');a.target='_blank';a.href=arguments[0];a.innerHTML='.';d.body.appendChild(a);return a", url)
-      a.click
-      wd.switch_to.window(wd.window_handles.last)
-
-      wd.find_element(:link_text, '利用規約')
-      yield
-      wd.close
-      wd.switch_to.window(wd.window_handles.last)
-    end
-
-    # 現在の画面からリンクが張られている購入明細を全て保存する。
-    def save_order(wd)
-      wd.find_element(:link_text, '利用規約')
-      orders = wd.find_elements(:link_text, '領収書／購入明細書')
-      orders.each do |ord|
-
-        open_new_window(wd, ord.attribute('href')) do
-          @order_seq += 1
-          wd.save_screenshot("#{SCREENSHOTS_DIR}/order_#{format('%03d', @order_seq)}.png")
-        end
-      end
     end
 
     def login(email, password)
