@@ -2,9 +2,14 @@
 # -*- coding: utf-8 -*-
 #
 # pry> require_relative('check_purchases.rb')
-# pry> driver = Amazon.instantiate('...@gmail.com')
-# (enter password)
-# (check login and select which range you want to use)
+# pry> driver = Amazon.instantiate('(your login account name here)')
+# (enter your account password)
+# ("Manually" check login and select which range you want to use)
+# pry> csv = CSV.open('path-to-csv')
+# pry> driver.run(csv)
+# ...
+# => nil
+# (you are done)
 #
 
 require 'csv'
@@ -15,25 +20,24 @@ require 'logger'
 require 'io/console'
 require 'selenium-webdriver'
 
-SCREENSHOTS_DIR = './screenshots'
-
 module Amazon
-  def self.instantiate(email, password=nil, logger=nil)
+  def self.instantiate(email, password=nil, opts=nil, logger=nil)
     if password.nil?
       print "password: "
       password = STDIN.noecho(&:gets)
       puts
     end
-    driver = Amazon::Driver.new(logger)
+    driver = Amazon::Driver.new(opts, logger)
     driver.login(email, password)
   end
 
   class Driver
     attr_reader :wd
 
-    def initialize(logger=nil)
+    def initialize(opts=nil, logger=nil)
       @wd = Selenium::WebDriver.for(:firefox)
       @wd.manage.timeouts.implicit_wait = 10 # sec
+      @opts = opts || OpenStruct.new
       @logger = logger || Logger.new('/dev/null')
     end
 
@@ -72,33 +76,35 @@ module Amazon
       logger = @logger
       orders = @wd.find_elements(:xpath, "//div[#{contain('order')}]")
       orders.each do |order|
-        rows = order.find_elements(:xpath, "div[not(#{contain('order-attributes')})]")
+        rows = order.find_elements(
+          :xpath, "div[not(#{contain('order-attributes')})]")
         orderinfo_row = rows[0]
-        order_inner = orderinfo_row.find_element(:xpath,
-                                                 ("div/div/div"\
-                                                  + "[#{contain('a-fixed-right-grid-inner')}]"))
-        date = order_inner.find_element(:xpath, "div[1]/div/div[1]/div[2]/span").text
-        price = order_inner.find_element(:xpath, "div[1]/div/div[2]/div[2]/span").text
-        order_id = order_inner.find_element(:xpath, "div[2]/div[1]/span[2]").text
+        order_inner = orderinfo_row.find_element(
+          :xpath, "div/div/div[#{contain('a-fixed-right-grid-inner')}]")
+        date = order_inner.find_element(
+          :xpath, "div[1]/div/div[1]/div[2]/span").text
+        price = order_inner.find_element(
+          :xpath, "div[1]/div/div[2]/div[2]/span").text
+        order_id = order_inner.find_element(
+          :xpath, "div[2]/div[1]/span[2]").text
         rows[1..-1].each_with_index do |row, i|
           # Item Name, Author, Thumbnail
-          item_info_div = row.find_element(:xpath,
-                                           ("div/div/div/div/div/div["\
-                                            + "#{contain('a-fixed-left-grid')}]"))
-          item_a = item_info_div.find_element(:xpath,
-                                              ("div/div[#{contain('a-col-right')}]/"\
-                                               + "div[1]/a"))
+          item_info_div = row.find_element(
+            :xpath, "div/div/div/div/div/div[#{contain('a-fixed-left-grid')}]")
+          item_a = item_info_div.find_element(
+            :xpath, "div/div[#{contain('a-col-right')}]/div[1]/a")
           item_name = item_a.text
           item_url = item_a.attribute('href')
 
-          puts "#{item_name} (#{item_url})"
-          puts "#{date}, #{price}, #{order_id}"
+          logger.info("#{item_name} (#{item_url})")
+          logger.info("#{date}, #{price}, #{order_id}")
           unless csv.nil?
             if i == 0
-              entry = [item_name, item_url, date, price, order_id]
-            else
-              entry = [item_name, item_url, '', '', '']
+              entry = ['Date', 'ID', 'Name', 'Price']
+              entry << 'URL' if @opts.include_url
             end
+            entry = [date, order_id, item_name, price]
+            entry << item_url if @opts.include_url
             csv << entry
           end
         end
@@ -108,8 +114,8 @@ module Amazon
 
     def go_next()
       # "次へ" (Next) link
-      last_item = @wd.find_element(:xpath, ("//ul[@class='a-pagination']"\
-                                            + "/li[#{contain('a-last')}]"))
+      last_item = @wd.find_element(
+        :xpath, "//ul[@class='a-pagination']/li[#{contain('a-last')}]")
       a_lst = last_item.find_elements(:xpath, 'a')
       if a_lst.empty?
         return false
@@ -120,7 +126,7 @@ module Amazon
     end
 
     def logout()
-      @wd.get 'http://www.amazon.co.jp/gp/flex/sign-out.html/ref=gno_signout'
+      @wd.get('http://www.amazon.co.jp/gp/flex/sign-out.html/ref=gno_signout')
       self
     end
   end
@@ -133,6 +139,12 @@ module Main
     opts = OpenStruct.new
     logger = Logger.new(STDERR)
     logger.level = Logger::INFO
+    logger.formatter = proc do |severity, time, _progname, msg|
+      severity_s = sprintf("%5s", severity)
+      pid_s = sprintf("#%5d", Process.pid)
+      time_s = time.strftime("%Y-%m-%d %H:%M:%S")
+      "#{severity_s} #{pid_s} #{time_s}  #{msg}\n"
+    end
     parser = OptionParser.new
     begin
       parser.banner = "Usage: #{File.basename($0)} email"
@@ -146,8 +158,10 @@ module Main
       STDERR.puts parser.help
       exit 1
     end
+    opts.freeze
     return opts, logger
   end
+
   def run(argv)
     opts, logger = Main.parse_options()
     include Amazon
@@ -158,7 +172,7 @@ module Main
     email = argv[0]
     ad = nil
     begin
-      ad = Amazon.instantiate(email, nil, logger)
+      ad = Amazon.instantiate(email, nil, opts, logger)
       ad.run_single_page()
     ensure
       ad.close unless ad.nil?
