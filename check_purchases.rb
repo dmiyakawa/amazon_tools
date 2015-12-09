@@ -129,7 +129,7 @@ module Amazon
               begin
                 item_price_div = right_column.find_element(
                   :xpath, "div[#{contain('a-color-price')}]]")
-                price = item_price_div.text
+                price = order_struct.price = item_price_div.text
               rescue Selenium::WebDriver::Error::WebDriverError
               end
 
