@@ -110,7 +110,7 @@ module Amazon
               :xpath,
               "div/div/div/div/div/div[#{contain('a-fixed-left-grid')}]/div")
             item_info_row_divs.each do |item_info_row_div|
-              # left_columnはサムネイル
+              # left_columnはサムネイル画像
               right_column = item_info_row_div.find_element(
                 :xpath, "div[#{contain('a-col-right')}]")
               # 右カラムの1行めが商品名。
@@ -122,15 +122,17 @@ module Amazon
                 item_a = item_name_div.find_element(:xpath, "a")
                 item_url = order_struct.item_url = item_a.attribute('href')
               rescue Selenium::WebDriver::Error::WebDriverError
+                logger.debug("Failed to fetch url")
               end
 
-              # 0円でない商品であれば商品価格が併せて表示される
-              price = order_struct.price = paid_price 
+              price = order_struct.price = ''
               begin
+                # 0円でない商品であれば商品価格が併せて表示される
                 item_price_div = right_column.find_element(
-                  :xpath, "div[#{contain('a-color-price')}]]")
+                  :xpath, "div/span[#{contain('a-color-price')}]")
                 price = order_struct.price = item_price_div.text
               rescue Selenium::WebDriver::Error::WebDriverError
+                logger.debug("Failed to fetch price information")
               end
 
               logger.info("\"#{item_name}\" #{date}, #{price}, #{order_id}")
