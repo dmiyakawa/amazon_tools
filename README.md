@@ -2,7 +2,7 @@
 
 Amazonの購入履歴をCSVエクスポートするツールとそのためのRubyライブラリ。
 
-2015-12-09 動作確認
+ * 2016-03-09 最終動作確認
 
 Amazonの購入履歴ページのHTMLが変わると対応できない。
 
@@ -22,12 +22,16 @@ Ruby (2.2.2で確認) とFirefoxとWebDriverが必要。
 
 表示期間を調整したい場合
 
-    $ bundle exec ruby -p address@example.com
+    $ bundle exec ruby check_purchases.rb -p address@example.com
+    password for "address@example.com": (パスワードを入力する)
     Press Enter when ready.
     (エンター押す)
     ...
 
-よりうるさいログ
+よりうるさいログを表示する場合は ```-lDEBUG``` とする。
 
-    $ bundle exec ruby -lDEBUG address@example.com
+    $ bundle exec ruby check_purchases.rb -lDEBUG address@example.com
 
+```--drop-before``` と ```--drop-after``` で取得範囲を制限できる。
+
+    $ bundle exec ruby check_purchases.rb --drop-before 2016-03-01 address@example.com

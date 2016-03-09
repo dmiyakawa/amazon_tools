@@ -37,7 +37,17 @@ module Amazon
       @wd.manage.timeouts.implicit_wait = opts.implicit_wait
       @wd.get('https://www.amazon.co.jp/gp/css/order-history')
       wait = Selenium::WebDriver::Wait.new(:timeout => 3)
-      wait.until { @wd.find_element(:id, 'signInSubmit-input').displayed? }
+      wait.until do
+        displayed = false
+        begin
+          displayed = @wd.find_element(:name, 'signIn').displayed?
+        rescue Selenium::WebDriver::Error::NoSuchElementError
+        end
+        unless displayed
+          displayed = @wd.find_element(:id, 'signInSubmit-input').displayed?
+        end
+        displayed
+      end
       @wd.find_element(:id, 'ap_email').click
       @wd.find_element(:id, 'ap_email').clear
       @wd.find_element(:id, 'ap_email').send_keys(email)
@@ -79,8 +89,8 @@ module Amazon
       logger = @logger
 
       orders = @wd.find_elements(:xpath, "//div[#{contain('order')}]")
-      orders.each_with_index do |order, i|
-        logger.debug("Start scanning element #{i+1}/#{orders.size}")
+      orders.each_with_index do |order, order_i|
+        logger.debug("Start scanning element #{order_i+1}/#{orders.size}")
         order_struct = OpenStruct.new
 
         begin
@@ -94,7 +104,8 @@ module Amazon
           orderinfo_row = rows[0]
           order_inner = orderinfo_row.find_element(
             :xpath, "div/div/div[#{contain('a-fixed-right-grid-inner')}]")
-          date = order_struct.date = order_inner.find_element(
+          
+          date_str = order_struct.date_str = order_inner.find_element(
             :xpath, "div[1]/div/div[1]/div[2]/span").text
           # ギフトーカード割引等の適用後の値段。
           # 各商品の価格の総和ではない
@@ -102,8 +113,22 @@ module Amazon
             :xpath, "div[1]/div/div[2]/div[2]/span").text
           order_id = order_struct.order_id = order_inner.find_element(
             :xpath, "div[2]/div[1]/span[2]").text
-          
-          rows[1..-1].each_with_index do |row, i|
+
+          m = date_str.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/)
+          unless m
+            fail "Unexpected date format (#{date_str})"
+          end
+          date = order_struct.date = Date.new(m[1].to_i, m[2].to_i, m[3].to_i)
+          if @opts.drop_before && date < @opts.drop_before
+            logger.debug("Ignoring order #{order_id} (#{date} < #{@opts.drop_before})")
+            next
+          end
+          if @opts.drop_after && @opts.drop_after < date
+            logger.debug("Ignoring order #{order_id} (#{@opts.drop_after} < #{date})")
+            next
+          end
+
+          rows[1..-1].each_with_index do |row, row_i|
             # アイテム名、サムネイルなどをまとめたdiv要素。
             # ひとつの注文の中に複数ある可能性がある。
             item_info_row_divs = row.find_elements(
@@ -134,9 +159,6 @@ module Amazon
               rescue Selenium::WebDriver::Error::WebDriverError
                 logger.debug("Failed to fetch price information")
               end
-
-              logger.info("\"#{item_name}\" #{date}, #{price}, #{order_id}")
-              logger.debug("url: #{item_url}")
               if block_given?
                 yield order_struct
               end
@@ -208,6 +230,12 @@ module Main
           fail "Unknown log level \"#{level}\""
         end
       end
+      parser.on('-b', '--drop-before DATE') do |d|
+        opts.drop_before = Date.parse(d)
+      end
+      parser.on('-a', '--drop-after DATE') do |a|
+        opts.drop_after = Date.parse(d)
+      end
       parser.on('-f', '--force', 'Force proceed on error') do
         opts.force = true
       end
@@ -251,25 +279,18 @@ module Main
         prev_date = nil
         prev_order_id = nil
         ad.each.with_index do |os, i|
+          logger.debug("date: #{os.date}")
+          logger.debug("order_id: \"#{os.order_id}\"")
+          logger.debug("item_name: \"#{os.item_name}\"")
+          logger.debug("price: #{os.price}")
+          logger.debug("paid_price: #{os.paid_price}")
+          logger.debug("url: #{os.item_url}")
           if i == 0
-            csv << ['Date', 'Order ID', 'Paied Price',
-                    'Name', 'Item Price', 'Item URL']
+            csv << ['Date', 'Order ID', 'Name',
+                    'Item Price','Paied Price', 'Item URL']
           end
-
-          if opts.verbose_csv || prev_date != os.date
-            date_str = os.date
-          else
-            date_str = ''
-          end
-          if opts.verbose_csv || prev_order_id != os.order_id
-            order_id_str = os.order_id
-            paid_price_str = os.paid_price
-          else
-            order_id_str = ''
-            paid_price_str = ''
-          end
-          csv << [date_str, order_id_str, paid_price_str,
-                  os.item_name, os.price, os.item_url]
+          csv << [os.date, os.order_id, os.item_name,
+                  os.price, os.paid_price, os.item_url]
           prev_date = os.date
           prev_order_id = os.order_id
         end
